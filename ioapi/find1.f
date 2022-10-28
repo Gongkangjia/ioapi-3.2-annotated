@@ -18,6 +18,9 @@ C  RETURNS:
 C       subscript at which the targeted key appears, or 
 C       -1 in case of failure.
 C       EXAMPLE:  search for FIP in table of FIP values
+C       在整数数组中,查找值,数组必须有序，FIND1( 2, 5, [1,2,3,4,5] )
+C       FIND1L为长整型数组
+C       其他几个函数是相似的
 C
 C  PRECONDITIONS REQUIRED:
 C       FIND1() for INTEGER  K, LIST; FINDL1() for INTEGER*8 K, LIST
