@@ -16,6 +16,7 @@ C
 C  FUNCTION:
 C
 C      Returns the year to day conversion factor for a given year
+C      2022 -> 1.0/365.0
 C
 C  ARGUMENT LIST DESCRIPTION:
 C
