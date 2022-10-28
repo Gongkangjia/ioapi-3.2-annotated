@@ -18,7 +18,7 @@ C  RETURNS:
 C       subscript at which the targeted key should be inserted
 C       or -1 if the key is found.
 C       EXAMPLE:  search for <FIP> in table of FIP values.
-C
+C       找到k在数组中应该被插入的位置
 C  PRECONDITIONS REQUIRED:
 C       LOCAT1()  for INTEGER   key-tuples and lists
 C       LOCATL1() for INTEGER*8 key-tuples and lists
