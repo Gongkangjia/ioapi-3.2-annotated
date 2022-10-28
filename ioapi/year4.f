@@ -16,7 +16,7 @@ C
 C  FUNCTION:
 C
 C      Returns the 4-digit year from the 2-digit year
-C       
+C      将2位年份转换为4位,20->2020
 C
 C  REVISION HISTORY:
 C
@@ -58,6 +58,7 @@ C       begin YEAR4
 
         IF ( FIRSTIME ) THEN
             FIRSTIME = .FALSE.
+C 从环境变量中获取YEAR4_BASE,可以是1900或19,会被处理成1900
             BASEYR = ENVINT( 'YEAR4_BASE',
      &                        'Base century year for YEAR4 algorithm',
      &                        1900, ISTAT )
@@ -68,6 +69,7 @@ C       begin YEAR4
                 BASEYR = BASEYR / 100
             END IF
             BASEYR  = BASEYR * 100
+C 这个PIVOTYR是什么意思，比如是50，明白了末尾两位超过这个数，算到下一世纪
             PIVOTYR = ENVINT( 'YEAR4_PIVOT',
      &                        'Pivot year for YEAR4 algorithm',
      &                        BASEYR + 70, ISTAT )
@@ -76,7 +78,7 @@ C       begin YEAR4
             END IF
             PIVOTYR = MOD( PIVOTYR , 100 )
         END IF
-        
+C yy如果是大于1900的话，不需要转换
         IF( YY .GT. BASEYR ) THEN
             YEAR4 = YY
         ELSE IF( YY .GT. 99 .OR. YY .LT. 0 ) THEN
@@ -84,8 +86,10 @@ C       begin YEAR4
      &                          '" is not a 2-digit positive number'
             CALL M3EXIT( 'YEAR4', 0, 0, MESG, 2 )
 
+C 正常转换75>50,1900+75
         ELSE IF( YY .GE. PIVOTYR ) THEN
             YEAR4 = BASEYR + YY
+C 如果是25的话,2025
         ELSE
             YEAR4 = BASEYR + 100 + YY
         ENDIF
