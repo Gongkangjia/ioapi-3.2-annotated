@@ -10,7 +10,7 @@ C (C) 2015 UNC Institute for the Environment
 C Distributed under the GNU LESSER GENERAL PUBLIC LICENSE version 2.1
 C See file "LGPL.txt" for conditions of use.
 C.........................................................................
-C  function body starts at line  92
+C  function body starts at line  95
 C
 C  RETURNS:
 C       If environment variable IOAPI_CHECK_HEADERS begins with 'Y' or 'y',
@@ -40,6 +40,7 @@ C       Eliminate unused NETCDF.EXT.  MPIGRD3 type for MPI/PnetCDF
 C       distributed I/O
 C       Modified 07-05/2016 by CJC:  bugs reported by Edward Anderson,
 C       Lockheed Martin,
+C       Modified 05/2023 by CJC:  support for VGTYP = TBLLAYS3, GISLAYS3
 C***********************************************************************
 
         USE M3UTILIO
@@ -883,7 +884,7 @@ C...........   Checks on the horizontal coordinate description:
         END IF  !  if  gdtyp3d = lamgrd3, etc.
 
 
-C...........   Checks on the vertical coordinate description:
+C...........   Checks on the vertical coordinate description
 
         IF ( NLAYS3( FID ) .LT. 1 .AND.
      &       FTYPE3( FID ) .GE. CUSTOM3 ) THEN
@@ -898,26 +899,13 @@ C...........   Checks on the vertical coordinate description:
 
         ELSE IF ( NLAYS3( FID ) .GT. 1 ) THEN
 
-            INCREASING = ( VGLVS3( 2,FID ) .GT. VGLVS3( 1,FID ) )
+            IF ( VGTYP3(FID) .EQ. TBLLAY3 .OR.
+     &           VGTYP3(FID) .EQ. GISLAY3   ) THEN      !  non-geometric:  don't need to check
 
-            DO  L = 2, MIN( NLAYS3( FID ), MXLAYS3 )
+                CKFLAG = .TRUE.
+                RETURN
 
-                IF ( INCREASING .NEQV.
-     &               ( VGLVS3( L+1,FID ) .GT. VGLVS3( L,FID ) ) ) THEN
-
-                    WRITE( MESG, 94010 )
-     &              'Bad layer monotonicity at layer', L, 'in file "'//
-     &              TRIM( FLIST3( FID ) ) // '"'
-
-                    CALL M3WARN( 'CKFILE3', 0, 0, MESG )
-                    CKFLAG = .FALSE.
-                    RETURN
-
-                END IF
-
-            END DO
-
-            IF ( VGTYP3(FID) .EQ. IMISS3  ) THEN   !  "other" -- legal but unusual
+            ELSE IF ( VGTYP3(FID) .EQ. IMISS3  ) THEN   !  "other" -- legal but unusual
 
                 WRITE( MESG, 94010 )
      &              'WARNING:  Vertical grid/coordinate type:',
@@ -943,6 +931,27 @@ C...........   Checks on the vertical coordinate description:
                 RETURN
 
             END IF  !  if  vgtyp3d = vgsgph3, etc.
+
+C...........   Check monotonicity, if appropriate:
+
+            INCREASING = ( VGLVS3( 2,FID ) .GT. VGLVS3( 1,FID ) )
+
+            DO  L = 2, MIN( NLAYS3( FID ), MXLAYS3 )
+
+                IF ( INCREASING .NEQV.
+     &               ( VGLVS3( L+1,FID ) .GT. VGLVS3( L,FID ) ) ) THEN
+
+                    WRITE( MESG, 94010 )
+     &              'Bad layer monotonicity at layer', L, 'in file "'//
+     &              TRIM( FLIST3( FID ) ) // '"'
+
+                    CALL M3WARN( 'CKFILE3', 0, 0, MESG )
+                    CKFLAG = .FALSE.
+                    RETURN
+
+                END IF
+
+            END DO
 
         END IF          !  if nlays < 1, etc.
 

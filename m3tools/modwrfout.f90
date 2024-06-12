@@ -2,38 +2,39 @@
 MODULE MODWRFIO
 
     !!********************************************************************
-    !!  Version "$Id: modwrfio.f90 237 2023-01-15 19:45:29Z coats $"
+    !!  Version "$Id: modwrfio.f90 4 2017-06-20 17:43:15Z coats $"
     !!  Copyright (C) 2010-2013 Baron Advanced Meteorological Systems, and
     !!            (C) 2015 UNC Institute for the Environment.
     !!  Distributed under the GNU LESSER GENERAL PUBLIC LICENSE version 2.1
     !!  See file "LGPL.txt" for conditions of use.
     !!....................................................................
     !!  DESCRIPTION:
-    !!      Routines and INTERFACEs for reading WRF netCDF files
+    !!      Adapted from ioapi/modwrfio.f90 to provide facilities for a
+    !!      second output WRF-netCDF file
     !!
     !!  PRECONDITIONS:
-    !!      Only manages one WRF-format file at a time:  call CLOSEWRF()
+    !!      Only manages one WRF-format file at a time:  call CLOSEWRFOUT()
     !!      between processing distinct files.
     !!
-    !!      If GRIDNAME argument to OPENWRF() is not BLANK:
+    !!      If GRIDNAME argument to OPENWRFOUT() is not BLANK:
     !!          setenv  GRIDDESC  <path name>
     !!
     !!  PUBLIC LOGICAL FUNCTIONS:
-    !!      OPENWRF:    open a new "current" WRFIO file for READ
+    !!      OPENWRFOUT:    open a new "current" WRFIO file for READ
     !!
-    !!      CRTWRF:     Open/create a WRFIO file for WRITE
+    !!      CRTWRFOUT:     Open/create a WRFIO file for WRITE
     !!      (not yet implemented)
     !!
-    !!      READWRF:    Read a time step of a variable from the
+    !!      READWRFOUT:    Read a time step of a variable from the
     !!      current WRFIO file.  Generic interface for GRIDDED
     !!      1-D, 2-D, 3-D DOUBLE, REAL and INTEGER variables
     !!
-    !!      WRITEWRF:   Write a time step of a variable to the
+    !!      WRITEWRFOUT:   Write a time step of a variable to the
     !!      current WRFIO file.  Generic interface for GRIDDED
     !!      1-D, 2-D, 3-D DOUBLE, REAL and INTEGER variables
     !!      (not yet implemented)
     !!
-    !!      CLOSEWRF:   Close the current WRFIO file
+    !!      CLOSEWRFOUT:   Close the current WRFIO file
     !!
     !!  REVISION  HISTORY:
     !!      Prototype  9/2010 by Carlie J. Coats, Jr., BAMS --
@@ -46,6 +47,7 @@ MODULE MODWRFIO
     !!********************************************************************
 
     USE M3UTILIO
+    USE MOWRFFIO
     USE MODNCFIO
 
     IMPLICIT NONE
@@ -55,34 +57,22 @@ MODULE MODWRFIO
 
     !!--------  Public Routines in this module:  -----------------------
 
-    PUBLIC   OPENWRF, CRTWRF, READWRF, WRITEWRF, CLOSEWRF
+    PUBLIC   OPENWRFOUT, CRTWRFOUT, READWRFOUT, WRITEWRFOUT, CLOSEWRFOUT
 
 
     !!--------  Generic Interfaces:  -----------------------------------
 
-    INTERFACE READWRF
+    INTERFACE READWRFOUT
         MODULE PROCEDURE RDWRF1DDBLE, RDWRF2DDBLE, RDWRF3DDBLE,     &
                          RDWRF1DREAL, RDWRF2DREAL, RDWRF3DREAL,     &
                          RDWRF1DINT,  RDWRF2DINT,  RDWRF3DINT
-    END INTERFACE READWRF
+    END INTERFACE READWRFOUT
 
-    INTERFACE WRITEWRF
+    INTERFACE WRITEWRFOUT
         MODULE PROCEDURE WRWRF1DDBLE, WRWRF2DDBLE, WRWRF3DDBLE,     &
                          WRWRF1DREAL, WRWRF2DREAL, WRWRF3DREAL,     &
                          WRWRF1DINT,  WRWRF2DINT,  WRWRF3DINT
-    END INTERFACE WRITEWRF
-
-
-    !!--------  Parameters:          -----------------------------------
-
-    INTEGER, PUBLIC, PARAMETER :: MXWRFDIMS =  12
-    INTEGER, PUBLIC, PARAMETER :: MXWRFFILE =   1
-    INTEGER, PUBLIC, PARAMETER :: MXWRFVARS = 256
-
-    REAL*8 , PUBLIC, PARAMETER :: WRFEARTH = 6370.0D3   ! WRF-ARW Earth Radius [m]
-
-    CHARACTER*16, PARAMETER :: BLANK = ' '
-    CHARACTER*64, PARAMETER :: BAR = '-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-'
+    END INTERFACE WRITEWRFOUT
 
     !!--------  Internal Variables:  -----------------------------------
 
@@ -91,8 +81,8 @@ MODULE MODWRFIO
     !!--------  File-state tables:
 
 
-    INTEGER, PUBLIC, PROTECTED, SAVE :: CDFIDW  = IMISS3               !  netCDF ID
-    INTEGER, PUBLIC, PROTECTED, SAVE :: FMODEW  = IMISS3               !  file mode:  FSREAD3 or FSRDWR3
+    INTEGER, PROTECTED, SAVE :: CDFIDWO  = IMISS3               !  netCDF ID
+    INTEGER, PROTECTED, SAVE :: FMODEWO  = IMISS3               !  file mode:  FSREAD3 or FSRDWR3
 
     CHARACTER*16,  PUBLIC, PROTECTED, SAVE :: LNAME  = CMISS3        !  logical name for current file
     CHARACTER*512, PUBLIC, PROTECTED, SAVE :: EQNAME = CMISS3        !  path name for current file
@@ -103,24 +93,24 @@ MODULE MODWRFIO
     CHARACTER*4 , PUBLIC, PROTECTED, SAVE :: VSTAGR( MXWRFVARS )       !  variable stagger ("", "X", "Y", "Z", "XY"
     INTEGER     , PUBLIC, PROTECTED, SAVE :: VARIDW( MXWRFVARS )       !  types (NCREAL, etc.)
     INTEGER     , PUBLIC, PROTECTED, SAVE :: VTYPEW( MXWRFVARS )       !  types (NCREAL, etc.)
-    INTEGER     , PUBLIC, PROTECTED, SAVE :: DIMCNT( MXWRFVARS )       !  number of dimensions
+    INTEGER     , PUBLIC, PROTECTED, SAVE :: NDIMSWO( MXWRFVARS )       !  number of dimensions
     INTEGER     , PUBLIC, PROTECTED, SAVE :: VARDIM( MXWRFDIMS, MXWRFVARS ) = 1  !  dimension-extents
 
     !!--------  Map projection parameters:
 
-    INTEGER, PUBLIC, PROTECTED, SAVE :: GDTYP1 = IMISS3    !  for output window, from GRIDDESC file
-    INTEGER, PUBLIC, PROTECTED, SAVE :: NCOLS1
-    INTEGER, PUBLIC, PROTECTED, SAVE :: NROWS1
-    INTEGER, PUBLIC, PROTECTED, SAVE :: NTHIK1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_ALP1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_BET1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_GAM1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: XCENT1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: YCENT1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: XORIG1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: YORIG1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: XCELL1
-    REAL*8 , PUBLIC, PROTECTED, SAVE :: YCELL1
+    INTEGER, PUBLIC, PROTECTED, SAVE :: GDTYPWO = IMISS3    !  for output window, from GRIDDESC file
+    INTEGER, PUBLIC, PROTECTED, SAVE :: NCOLSWO
+    INTEGER, PUBLIC, PROTECTED, SAVE :: NROWSWO
+    INTEGER, PUBLIC, PROTECTED, SAVE :: NTHIKWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_ALPWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_BETWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: P_GAMWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: XCENTWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: YCENTWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: XORIGWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: YORIGWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: XCELLWO
+    REAL*8 , PUBLIC, PROTECTED, SAVE :: YCELLWO
 
     INTEGER, PUBLIC, PROTECTED, SAVE :: XOFFS1      !!  grid column C is wrf column C+XOFFS1
     INTEGER, PUBLIC, PROTECTED, SAVE :: YOFFS1      !!       row    R               R+YOFFS1
@@ -166,7 +156,7 @@ CONTAINS    ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--==-=-=-=-=-=-=-
     !!  Open WRF-output file with logical name FNAME for read or read/write
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-    LOGICAL FUNCTION OPENWRF( FNAME, GNAME, FSTATUS )
+    LOGICAL FUNCTION OPENWRFOUT( FNAME, GNAME, FSTATUS )
 
         !!-----------   Arguments:
 
@@ -174,7 +164,7 @@ CONTAINS    ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--==-=-=-=-=-=-=-
         CHARACTER(LEN=*), INTENT(IN   ) :: GNAME        !!  GRIDDESC name for output grid
         INTEGER         , INTENT(IN   ) :: FSTATUS      !!  FSREAD3, FSRDWR3
 
-        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/OPENWRF'
+        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/OPENWRFOUT'
 
         !!-----------   Local Variables:
 
@@ -216,7 +206,7 @@ CONTAINS    ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--==-=-=-=-=-=-=-
         IF ( LDEV .GE. 0 ) THEN
             MESG = 'Redundant call to ' // PNAME
             CALL M3MESG( MESG )
-            OPENWRF = .TRUE.
+            OPENWRFOUT = .TRUE.
             RETURN
         END IF
 
@@ -224,12 +214,12 @@ CONTAINS    ! -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--==-=-=-=-=-=-=-
 
         WRITE( LDEV, '( 5X, A )' ) BAR,                                 &
 'Module MODWRFIO to read and write WRFIO netCD output data.',           &
-'Subroutine  OPENWRF()',                                                &
+'Subroutine  OPENWRFOUT()',                                                &
 '',                                                                     &
 'NOTE:  Current version supports at most one input file.',              &
 '',                                                                     &
 'Module version:',                                                      &
-'$Id: modwrfio.f90 237 2023-01-15 19:45:29Z coats $',            &
+'$Id: modwrfio.f90 4 2017-06-20 17:43:15Z coats $',            &
 '',                                                                     &
 'Copyright (C) 2013 Baron Advanced Meteorological Systems, LLC.,',      &
 '(C) 2015 UNC Institute for the Environment.',                          &
@@ -239,9 +229,9 @@ BAR, ''
 
         EFLAG = .FALSE.
         IF ( LNAME .NE. CMISS3 ) THEN
-            MESG = 'File "' // TRIM( LNAME ) // '" already opened.  CLOSEWRF() it before opening a new file.'
+            MESG = 'File "' // TRIM( LNAME ) // '" already opened.  CLOSEWRFOUT() it before opening a new file.'
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         ELSE IF ( FSTATUS .EQ. FSREAD3 ) THEN
             FSTAT = NF_NOWRITE
@@ -250,7 +240,7 @@ BAR, ''
         ELSE
             WRITE( MESG, '( A, I10 )' ) 'File status not supported:', FSTATUS
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -263,7 +253,7 @@ BAR, ''
             CALL M3MESG( MESG )
             WRITE( MESG, '( 3 A, I10 )' ) 'NF_OPEN(', TRIM( FNAME ), ') failure:  IERR=', IERR
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -273,17 +263,17 @@ BAR, ''
             CALL M3MESG( MESG )
             WRITE( MESG, '( 3 A, I10 )' ) 'NF_INQ_NDIMS(', TRIM( FNAME ), ') failure:  IERR=', IERR
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         ELSE IF ( NDIMS .GT. MXWRFDIMS ) THEN
             MESG = 'File "' // TRIM( FNAME ) // '":  NDIMS exceeds MXWRFDIMS'
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         ELSE IF ( NVARSW .GT. MXWRFVARS ) THEN
             MESG = 'File "' // TRIM( FNAME ) // '":  NVARS exceeds MXWRFVARS'
             CALL M3WARN( PNAME, 0,0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -295,7 +285,7 @@ BAR, ''
                 CALL M3MESG( MESG )
                 WRITE( MESG, '( 3A, I10 )' ) 'NF_INQ_DIMLEN(', TRIM( FNAME ), ') failure:  IERR=', IERR
                 CALL M3WARN( PNAME, 0,0, MESG )
-                OPENWRF = .FALSE.
+                OPENWRFOUT = .FALSE.
                 RETURN
             END IF
 
@@ -361,7 +351,7 @@ BAR, ''
         DO V = 1, NVARSW
 
             VARIDW(V) = V
-            IERR = NF_INQ_VAR( FID, V, VNAMEW(V), VTYPEW(V), DIMCNT(V), VDIMS, NATTS )
+            IERR = NF_INQ_VAR( FID, V, VNAMEW(V), VTYPEW(V), NDIMSWO(V), VDIMS, NATTS )
             IF ( IERR .NE. NF_NOERR ) THEN
                 MESG  = NF_STRERROR( IERR )
                 CALL M3MESG( MESG )
@@ -371,7 +361,7 @@ BAR, ''
                 CYCLE
             END IF
 
-            DO N = 1, DIMCNT(V)
+            DO N = 1, NDIMSWO(V)
                 VARDIM( N,V ) = IDIMS( VDIMS(N) )
             END DO
 
@@ -421,7 +411,7 @@ BAR, ''
         IF ( EFLAG ) THEN
             MESG = 'Error(s) reading file header for "' // TRIM( FNAME ) // '"'
             CALL M3WARN( PNAME, 0, 0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -435,7 +425,7 @@ BAR, ''
         IF ( IERR .NE. 0 ) THEN
             WRITE( MESG, '( A, I10 )' ) 'Error allocating coordinate buffers.  STAT=', IERR
             CALL M3WARN( PNAME, 0, 0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -457,7 +447,7 @@ BAR, ''
             IF ( V .LE. 0 ) THEN
                 WRITE( MESG, '( A, I10 )' ) 'Error finding time-vble "Times" for file.'
                 CALL M3WARN( PNAME, 0,0, MESG )
-                OPENWRF = .FALSE.
+                OPENWRFOUT = .FALSE.
                 RETURN
             END IF
 
@@ -677,7 +667,7 @@ BAR, ''
 
         IF ( EFLAG ) THEN
             CALL M3WARN( PNAME, 0, 0, 'Error(s) reading grid parameters' )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -710,7 +700,7 @@ BAR, ''
         ELSE
             WRITE( MESG, '( A, I10 )' ) 'Unrecognized/unsupported map projection', WRFPROJ
             CALL M3WARN( PNAME, 0, 0, MESG )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -719,31 +709,31 @@ BAR, ''
             CALL M3MESG( 'Using grid description from file' )
             CALL M3MESG( BLANK )
 
-            GDTYP1 = GDTYPW
-            NCOLS1 = NCOLSW
-            NROWS1 = NROWSW
-            NTHIK1 =      1
-            P_ALP1 = P_ALPW
-            P_BET1 = P_BETW
-            P_GAM1 = P_GAMW
-            XCENT1 = P_GAM1
-            YCENT1 = YCENTW
-            XCELL1 = XCELLW
-            YCELL1 = YCELLW
+            GDTYPWO = GDTYPW
+            NCOLSWO = NCOLSW
+            NROWSWO = NROWSW
+            NTHIKWO =      1
+            P_ALPWO = P_ALPW
+            P_BETWO = P_BETW
+            P_GAMWO = P_GAMW
+            XCENTWO = P_GAMWO
+            YCENTWO = YCENTW
+            XCELLWO = XCELLW
+            YCELLWO = YCELLW
             XOFFS1 = 0.0D0
             YOFFS1 = 0.0D0
 
             CALL GETORIG( LON11W, LAT11W )
 
-            XORIG1 = XORIGW
-            YORIG1 = YORIGW
+            XORIGWO = XORIGW
+            YORIGWO = YORIGW
 
         ELSE
 
-            IF ( .NOT.DSCGRID( GNAME, CNAME, GDTYP1,                   &
-                               P_ALP1, P_BET1,P_GAM1, XCENT1, YCENT1,  &
-                               XORIG1, YORIG1, XCELL1, YCELL1,         &
-                               NCOLS1, NROWS1, NTHIK1 ) ) THEN
+            IF ( .NOT.DSCGRID( GNAME, CNAME, GDTYPWO,                   &
+                               P_ALPWO, P_BETWO,P_GAMWO, XCENTWO, YCENTWO,  &
+                               XORIGWO, YORIGWO, XCELLWO, YCELLWO,         &
+                               NCOLSWO, NROWSWO, NTHIKWO ) ) THEN
                 EFLAG = .TRUE.
                 MESG  = '"' // TRIM( GNAME ) // '" not found in GRIDDESC file'
                 CALL M3MESG( '"OUTGRID" not found in GRIDDESC file' )
@@ -754,54 +744,51 @@ BAR, ''
                 CALL M3MESG( BLANK )
             END IF
 
-            IF ( GDTYP1 .NE. GDTYPW ) THEN
+            IF ( GDTYPWO .NE. GDTYPW ) THEN
                 CALL M3MESG( 'Map projection-type mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            IF ( DBLERR( P_ALPW , P_ALP1 ) ) THEN
+            IF ( DBLERR( P_ALPW , P_ALPWO ) ) THEN
                 CALL M3MESG( 'Map projection parameter P_ALP mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            IF ( DBLERR( P_BETW , P_BET1 ) ) THEN
+            IF ( DBLERR( P_BETW , P_BETWO ) ) THEN
                 CALL M3MESG( 'Map projection parameter P_BET mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            IF ( DBLERR( P_GAMW , P_GAM1 ) ) THEN
+            IF ( DBLERR( P_GAMW , P_GAMWO ) ) THEN
                 CALL M3MESG( 'Map projection parameter P_GAM mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            IF ( DBLERR( XCELLW , XCELL1 ) ) THEN
+            IF ( DBLERR( XCELLW , XCELLWO ) ) THEN
                 CALL M3MESG( 'Map projection parameter XCELL mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            IF ( DBLERR( YCELLW , YCELL1 ) ) THEN
+            IF ( DBLERR( YCELLW , YCELLWO ) ) THEN
                 CALL M3MESG( 'Map projection parameter YCELL mismatch' )
                 EFLAG = .TRUE.
             END IF
 
-            CALL GETORIG( LON11W, LAT11W )
+            !! CALL GETORIG( LON11W, LAT11W )
 
-            XX = ( XORIG1 - XORIGW ) / XCELL1
-            YY = ( YORIG1 - YORIGW ) / YCELL1
+            XORIGW = XORIGWO
+            YORIGW = YORIGWO
 
-            XORIGW = XORIG1
-            YORIGW = YORIG1
+            XX = ( XORIGWO - XORIGW ) / XCELLWO
+            YY = ( YORIGWO - YORIGW ) / YCELLWO
 
             !!  <hack>:  need to use DBLERR() away from zero:
 
-            IF ( XX .LT. 0.0d0 .OR. XX .GT. DBLE( NCOLSW ) ) THEN
-                CALL M3MESG( 'Output grid not contained in input grid' )
-                EFLAG = .TRUE.
-            ELSE IF ( SLOPPYSAME( 1.0d0 + XX, 1.0d0 + DBLE( NINT( XX ) ) ) ) THEN
+            IF ( .NOT.DBLERR( DBLE( NCOLSWO+1 ) + XX, DBLE( NCOLSWO+1 + NINT( XX ) ) ) ) THEN
                  CALL M3MESG( 'Output grid is non-staggered in X' )
                  XOFFS1 = NINT( XX )
                  XSTAGR = .FALSE.
-            ELSE IF ( SLOPPYSAME( XX+0.5D0, 0.5D0 + DBLE( NINT( XX ) ) ) ) THEN
+            ELSE IF ( .NOT.DBLERR( XX+0.5D0, DBLE( NINT( XX+0.5D0 ) ) ) ) THEN
                  CALL M3MESG( 'Output grid is staggered in X' )
                  XOFFS1 = NINT( XX+0.5D0 )
                  XSTAGR = .TRUE.
@@ -810,14 +797,11 @@ BAR, ''
                 EFLAG = .TRUE.
             END IF
 
-            IF ( YY .LT. 0.0d0 .OR. YY .GT. DBLE( NROWSW ) ) THEN
-                CALL M3MESG( 'Output grid not contained in input grid' )
-                EFLAG = .TRUE.
-            ELSE IF ( SLOPPYSAME( 1.0d0 + YY, 1.0d0 + DBLE( NINT( YY ) ) ) ) THEN
+            IF ( .NOT.DBLERR( DBLE( NROWSWO+1 ) + YY, DBLE( NROWSWO+1 + NINT( YY ) ) ) ) THEN
                  CALL M3MESG( 'Output grid is non-staggered in Y' )
                  YOFFS1 = NINT( YY )
                  YSTAGR = .FALSE.
-            ELSE IF ( SLOPPYSAME( YY+0.5D0, 0.5d0 + DBLE( INT( YY ) ) ) ) THEN
+            ELSE IF ( .NOT.DBLERR( YY+0.5D0, DBLE( NINT( YY+0.5D0 ) ) ) ) THEN
                  CALL M3MESG( 'Output grid is staggered in Y' )
                  YOFFS1 = NINT( YY+0.5D0 )
                  YSTAGR = .TRUE.
@@ -830,13 +814,13 @@ BAR, ''
 
         IF ( EFLAG ) THEN
             CALL M3WARN( PNAME, 0, 0, 'Error(s) in grid/projection metadata' )
-            OPENWRF = .FALSE.
+            OPENWRFOUT = .FALSE.
             RETURN
         END IF
 
         LNAME = FNAME
-        CDFIDW = FID
-        FMODEW = FSTATUS
+        CDFIDWO = FID
+        FMODEWO = FSTATUS
 
         CALL M3MESG( BAR )
         MESG = '"' // TRIM( FNAME ) // '" opened for read'
@@ -863,10 +847,10 @@ BAR, ''
         CALL M3MESG( MESG )
         CALL M3MESG( BAR )
 
-        OPENWRF = .TRUE.
+        OPENWRFOUT = .TRUE.
         RETURN
 
-    END FUNCTION OPENWRF
+    END FUNCTION OPENWRFOUT
 
 
 
@@ -874,7 +858,7 @@ BAR, ''
     !!  Open new or unknown WRF-output file with logical name FNAME for read/write
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-    LOGICAL FUNCTION CRTWRF( FNAME, GNAME, FSTATUS )
+    LOGICAL FUNCTION CRTWRFOUT( FNAME, GNAME, FSTATUS )
 
         !!-----------   Arguments:
 
@@ -882,7 +866,7 @@ BAR, ''
         CHARACTER(LEN=*), INTENT(IN   ) :: GNAME        !!  GRIDDESC name for output grid
         INTEGER         , INTENT(IN   ) :: FSTATUS      !!  FSUNKN3, FSCREA3, FSNEW3
 
-        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/CRTWRF'
+        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/CRTWRFOUT'
 
         !!-----------   Local Variables:
 
@@ -901,7 +885,7 @@ BAR, ''
         ELSE
             WRITE( MESG, '( A, I10 )' ) 'File status', FSTATUS,  'not supported for creating "' // TRIM( FNAME ) // '"'
             CALL M3WARN( PNAME, 0,0, MESG )
-            CRTWRF = .FALSE.
+            CRTWRFOUT = .FALSE.
             RETURN
         END IF
 
@@ -914,17 +898,17 @@ BAR, ''
 !           CALL M3MESG( MESG )
 !           WRITE( MESG, '( 3 A, I10 )' ) 'NF_OPEN(', TRIM( FNAME ), ') failure:  IERR=', IERR
 !           CALL M3WARN( PNAME, 0,0, MESG )
-!           OPENWRF = .FALSE.
+!           OPENWRFOUT = .FALSE.
 !           RETURN
 !       END IF
 
         LNAME = FNAME
-        FMODEW = FSRDWR3
-        CALL M3WARN( PNAME, 0,0, 'MODWRFIO/CRTWRF() not yet implemented' )
-        CRTWRF = .FALSE.
+        FMODEWO = FSRDWR3
+        CALL M3WARN( PNAME, 0,0, 'MODWRFIO/CRTWRFOUT() not yet implemented' )
+        CRTWRFOUT = .FALSE.
         RETURN
 
-    END FUNCTION CRTWRF
+    END FUNCTION CRTWRFOUT
 
 
 
@@ -932,13 +916,13 @@ BAR, ''
     !!  Close WRF-output file with logical name FNAME for read or read/write
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-    LOGICAL FUNCTION CLOSEWRF( FNAME )
+    LOGICAL FUNCTION CLOSEWRFOUT( FNAME )
 
         !!-----------   Arguments:
 
         CHARACTER(LEN=*), INTENT(IN   ) :: FNAME        !!  logical file name
 
-        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/CLOSEWRF'
+        CHARACTER*24, PARAMETER :: PNAME = 'MODWRFIO/CLOSEWRFOUT'
 
         !!-----------   Local Variables
 
@@ -948,45 +932,45 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
-            CALL M3MESG( 'MODWRFIO/CLOSEWRF:  no files open; returning' )
-            CLOSEWRF = .TRUE.
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
+            CALL M3MESG( 'MODWRFIO/CLOSEWRFOUT:  no files open; returning' )
+            CLOSEWRFOUT = .TRUE.
             RETURN
         END IF
 
         IF ( FNAME .NE. LNAME ) THEN
-            MESG = 'MODWRFIO/CLOSEWRF:  file "' // TRIM( FNAME ) // '" does not match "' // TRIM( LNAME ) // '"'
+            MESG = 'MODWRFIO/CLOSEWRFOUT:  file "' // TRIM( FNAME ) // '" does not match "' // TRIM( LNAME ) // '"'
             CALL M3MESG( MESG )
-            CLOSEWRF = .FALSE.
+            CLOSEWRFOUT = .FALSE.
             RETURN
         END IF
 
-        IERR = NF_CLOSE( CDFIDW )
+        IERR = NF_CLOSE( CDFIDWO )
         IF ( IERR .NE. NF_NOERR ) THEN
             MESG  = NF_STRERROR( IERR )
             CALL M3MESG( MESG )
             WRITE( MESG, '( 3 A, I10 )' ) 'Error closing file "', TRIM( FNAME ), '"  IERR=', IERR
             CALL M3MESG( MESG )
-            CLOSEWRF = .FALSE.
+            CLOSEWRFOUT = .FALSE.
             RETURN
         END IF
 
-        CDFIDW  = IMISS3
-        FMODEW  = IMISS3
+        CDFIDWO  = IMISS3
+        FMODEWO  = IMISS3
         LNAME  = CMISS3
         EQNAME = CMISS3
 
-        MESG = 'MODWRFIO/CLOSEWRF:  file "' // TRIM( FNAME ) // '" closed.'
+        MESG = 'MODWRFIO/CLOSEWRFOUT:  file "' // TRIM( FNAME ) // '" closed.'
         CALL M3MESG( MESG )
-        CLOSEWRF = .TRUE.
+        CLOSEWRFOUT = .TRUE.
 
         RETURN
 
-    END FUNCTION CLOSEWRF
+    END FUNCTION CLOSEWRFOUT
 
 
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    !!  MODULE PROCEDURES for generic READWRF():
+    !!  MODULE PROCEDURES for generic READWRFOUT():
     !!  Read variable VNAME for date&time JDATE:JTIME
     !!  1-D/2-D/3-D ; DBLE/REAL/INTEGER cases
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -1010,7 +994,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DDBLE = .FALSE.
@@ -1020,7 +1004,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 2 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 2 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DDBLE = .FALSE.
@@ -1045,7 +1029,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1092,7 +1076,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DDBLE = .FALSE.
@@ -1102,7 +1086,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DDBLE = .FALSE.
@@ -1127,7 +1111,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1176,7 +1160,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DDBLE = .FALSE.
@@ -1186,7 +1170,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 4 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 4 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DDBLE = .FALSE.
@@ -1211,7 +1195,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1237,7 +1221,7 @@ BAR, ''
 
 
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    !!  MODULE PROCEDURES for generic READWRF():
+    !!  MODULE PROCEDURES for generic READWRFOUT():
     !!  Read variable VNAME for date&time JDATE:JTIME
     !!  1-D/2-D/3-D ; REAL/INTEGER cases
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -1261,7 +1245,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DREAL = .FALSE.
@@ -1271,7 +1255,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 2 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 2 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DREAL = .FALSE.
@@ -1296,7 +1280,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1343,7 +1327,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DREAL = .FALSE.
@@ -1353,7 +1337,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DREAL = .FALSE.
@@ -1378,7 +1362,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1427,7 +1411,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DREAL = .FALSE.
@@ -1437,7 +1421,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 4 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 4 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DREAL = .FALSE.
@@ -1462,7 +1446,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1511,7 +1495,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DINT = .FALSE.
@@ -1521,7 +1505,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 2 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 2 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF1DINT = .FALSE.
@@ -1546,7 +1530,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1594,7 +1578,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DINT = .FALSE.
@@ -1604,7 +1588,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF2DINT = .FALSE.
@@ -1629,7 +1613,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1678,7 +1662,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DINT = .FALSE.
@@ -1688,7 +1672,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             RDWRF3DINT = .FALSE.
@@ -1713,7 +1697,7 @@ BAR, ''
             RETURN
         END IF
 
-        FID = CDFIDW
+        FID = CDFIDWO
         VID = VARIDW( V )
         DIMS( 1 ) = 1
         DELS( 1 ) = VARDIM( 1,V )
@@ -1743,7 +1727,7 @@ BAR, ''
 
 
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-    !!  MODULE PROCEDURES for generic WRITEWRF():
+    !!  MODULE PROCEDURES for generic WRITEWRFOUT():
     !!  Write variable VNAME for date&time JDATE:JTIME
     !!  1-D/2-D/3-D ; DBLE/REAL/INTEGER cases
     !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -1768,12 +1752,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DDBLE = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DDBLE = .FALSE.
@@ -1783,7 +1767,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DDBLE = .FALSE.
@@ -1800,7 +1784,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF1DDBLE = .FALSE.
         RETURN
 
@@ -1830,12 +1814,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DDBLE = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DDBLE = .FALSE.
@@ -1844,7 +1828,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DDBLE = .FALSE.
@@ -1861,7 +1845,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF2DDBLE = .FALSE.
         RETURN
 
@@ -1891,12 +1875,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DDBLE = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DDBLE = .FALSE.
@@ -1905,7 +1889,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DDBLE = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DDBLE = .FALSE.
@@ -1922,7 +1906,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF3DDBLE = .FALSE.
         RETURN
 
@@ -1952,12 +1936,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DREAL = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DREAL = .FALSE.
@@ -1967,7 +1951,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DREAL = .FALSE.
@@ -1984,7 +1968,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF1DREAL = .FALSE.
         RETURN
 
@@ -2014,12 +1998,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DREAL = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DREAL = .FALSE.
@@ -2028,7 +2012,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DREAL = .FALSE.
@@ -2045,7 +2029,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF2DREAL = .FALSE.
         RETURN
 
@@ -2075,12 +2059,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DREAL = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DREAL = .FALSE.
@@ -2089,7 +2073,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DREAL = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DREAL = .FALSE.
@@ -2106,7 +2090,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF3DREAL = .FALSE.
         RETURN
 
@@ -2136,12 +2120,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DINT = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DINT = .FALSE.
@@ -2150,7 +2134,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF1DINT = .FALSE.
@@ -2167,7 +2151,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF1DINT = .FALSE.
         RETURN
 
@@ -2195,12 +2179,12 @@ BAR, ''
         INTEGER         V
         CHARACTER*256   MESG
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DINT = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DINT = .FALSE.
@@ -2209,7 +2193,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF2DINT = .FALSE.
@@ -2228,7 +2212,7 @@ BAR, ''
 
         !!-----------   Body:
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF2DINT = .FALSE.
         RETURN
 
@@ -2258,12 +2242,12 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .EQ. IMISS3 ) THEN
+        IF ( CDFIDWO .EQ. IMISS3 ) THEN
             MESG  = '*** File not yet open for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DINT = .FALSE.
             RETURN
-        ELSE IF ( FMODEW .NE. FSRDWR3 ) THEN
+        ELSE IF ( FMODEWO .NE. FSRDWR3 ) THEN
             MESG  = '*** File  "' // TRIM( LNAME ) // '" not opened for "WRITE(' // TRIM( VNAME ) // '...)"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DINT = .FALSE.
@@ -2272,7 +2256,7 @@ BAR, ''
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DINT = .FALSE.
             RETURN
-        ELSE IF ( DIMCNT( V ) .GT. 3 ) THEN
+        ELSE IF ( NDIMSWO( V ) .GT. 3 ) THEN
             MESG  = '*** Bad DIMENSION-COUNT for "' // TRIM( VNAME ) // '"'
             CALL M3WARN( PNAME, JDATE, JTIME, MESG )
             WRWRF3DINT = .FALSE.
@@ -2289,7 +2273,7 @@ BAR, ''
             RETURN
         END IF
 
-        CALL M3MESG( 'WRITEWRF() not yet implemented' )
+        CALL M3MESG( 'WRITEWRFOUT() not yet implemented' )
         WRWRF3DINT = .FALSE.
         RETURN
 
@@ -2314,8 +2298,8 @@ BAR, ''
 
         !!-----------   Body:
 
-        IF ( CDFIDW .LT. 0 ) THEN
-            MESG  = '*** No files open: Must call OPENWRF() or CRTWRF() before any I/O call'
+        IF ( CDFIDWO .LT. 0 ) THEN
+            MESG  = '*** No files open: Must call OPENWRFOUT() or CRTWRFOUT() before any I/O call'
             CALL M3MESG( MESG )
             CHECKNAME = .FALSE.
             RETURN
@@ -2465,30 +2449,30 @@ BAR, ''
 
         TPOUT = 0.0D0   !  array assignment
 
-        IF ( GDTYP1 .EQ. LAMGRD3 ) THEN
+        IF ( GDTYPWO .EQ. LAMGRD3 ) THEN
 
-            DSCR = P_ALP1
+            DSCR = P_ALPWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
             DSCR = 60.0D0 * ( DSCR - DBLE( MNT ) )          !  seconds
             TPOUT( 3 ) = DSCR + 1000.0D0*( MNT + 1000*DEG ) !  dddmmmsss.sssD0
 
-            DSCR = P_BET1
+            DSCR = P_BETWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
             DSCR = 60.0D0 * ( DSCR - DBLE( MNT ) )          !  seconds
             TPOUT( 4 ) = DSCR + 1000.0D0*( MNT + 1000*DEG ) !  dddmmmsss.sssD0
 
-            DSCR = P_GAM1
+            DSCR = P_GAMWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
             DSCR = 60.0D0 * ( DSCR - DBLE( MNT ) )          !  seconds
             TPOUT( 5 ) = DSCR + 1000.0D0*( MNT + 1000*DEG ) !  dddmmmsss.sssD0
 
-            DSCR = YCENT1
+            DSCR = YCENTWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
@@ -2499,16 +2483,16 @@ BAR, ''
             IOZONE = 81
             IOUNIT = 2       !  output units:  meters
 
-        ELSE IF ( GDTYP1 .EQ. POLGRD3 ) THEN
+        ELSE IF ( GDTYPWO .EQ. POLGRD3 ) THEN
 
-            DSCR = P_GAM1
+            DSCR = P_GAMWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
             DSCR = 60.0D0 * ( DSCR - DBLE( MNT ) )          !  seconds
             TPOUT( 5 ) = DSCR + 1000.0D0*( MNT + 1000*DEG ) !  dddmmmsss.sssD0
 
-            DSCR = P_BET1
+            DSCR = P_BETWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
@@ -2519,16 +2503,16 @@ BAR, ''
             IOZONE = 83
             IOUNIT = 2       !  output units:  meters
 
-        ELSE IF ( GDTYP1 .EQ. EQMGRD3 ) THEN
+        ELSE IF ( GDTYPWO .EQ. EQMGRD3 ) THEN
 
-            DSCR = P_GAM1
+            DSCR = P_GAMWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
             DSCR = 60.0D0 * ( DSCR - DBLE( MNT ) )          !  seconds
             TPOUT( 5 ) = DSCR + 1000.0D0*( MNT + 1000*DEG ) !  dddmmmsss.sssD0
 
-            DSCR = P_ALP1
+            DSCR = P_ALPWO
             DEG  = INT( DSCR )                              !  int degrees
             DSCR = 60.0D0 * ( DSCR - DBLE( DEG ) )          !  minutes
             MNT  = INT( DSCR )                              !  int minutes
@@ -2545,7 +2529,7 @@ BAR, ''
             CALL M3MSG2( MESG )
             MESG = 'LAM (2), POL (6), EQM (7)'
             CALL M3MSG2( MESG )
-            WRITE( MESG, '( A, I10, 2X, A )' ) 'Requested grid type', GDTYP1, 'not supported'
+            WRITE( MESG, '( A, I10, 2X, A )' ) 'Requested grid type', GDTYPWO, 'not supported'
             CALL M3EXIT( PNAME, 0, 0, MESG, 2 )
 
         END IF                  ! if dscgrid() failed, or if non-Lambert grid
@@ -2571,8 +2555,8 @@ BAR, ''
             CALL M3EXIT( PNAME, 0, 0, MESG, 2 )
         END IF
 
-        XORIGW = CRDIO( 1 ) - 0.5D0 * XCELL1
-        YORIGW = CRDIO( 2 ) - 0.5D0 * YCELL1
+        XORIGW = CRDIO( 1 ) - 0.5D0 * XCELLWO
+        YORIGW = CRDIO( 2 ) - 0.5D0 * YCELLWO
 
         RETURN
 
@@ -2629,16 +2613,6 @@ BAR, ''
         DBLERR = ( (P - Q)**2  .GT.  1.0D-10*( P*P + Q*Q + 1.0D-5 ) )
         RETURN
     END FUNCTION DBLERR
-
-
-    !!-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
-
-
-    LOGICAL FUNCTION SLOPPYSAME( P, Q )
-        REAL*8, INTENT( IN ) :: P, Q
-        SLOPPYSAME = ( (P - Q)**2  .LT.  1.0D-7*( P*P + Q*Q + 1.0D-4 ) )
-        RETURN
-    END FUNCTION SLOPPYSAME
 
 
 

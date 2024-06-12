@@ -1,6 +1,6 @@
 #
 #.........................................................................
-# Version "$Id: Makefile.nocpl.sed 159 2020-04-18 16:10:51Z coats $"
+# Version "$Id: Makefile.nocpl.sed 260 2024-01-25 18:05:50Z coats $"
 # EDSS/Models-3 M3TOOLS
 #    (C) 1992-2002 MCNC and Carlie J. Coats, Jr.,
 #    (C) 2003-2004 by Baron Advanced Meteorological Systems,
@@ -84,13 +84,16 @@ f90SRC = \
 bcwndw.f90      camxtom3.f90    datshift.f90    factor.f90      fakestep.f90    \
 fills.f90       findwndw.f90    greg2jul.f90    gregdate.f90    gridprobe.f90   \
 insertgrid.f90  jul2greg.f90    juldate.f90     juldiff.f90     julshift.f90    \
-latlon.f90      m3fake.f90      m3mask.f90      m3pair.f90      m3probe.f90     \
-m3totxt.f90     m3tproc.f90     m3tshift.f90    m3wndw.f90      mtxcalc.f90     \
-pairstep.f90    presz.f90       timediff.f90    timeshift.f90   vertot.f90      \
-vertimeproc.f90 vertintegral.f90                wndwdesc.f90    wrfgriddesc.f90 \
-wrftom3.f90     mpasdiff.f90    mpasstat.f90    mpastom3.f90    raandomstat.f90
+latlon.f90      m3fake.f90      m3mask.f90      m3mxfind.f90    m3pair.f90      \
+m3probe.f90     m3totxt.f90     m3tproc.f90     m3tshift.f90    m3tslct.f90     \
+m3wndw.f90      mpasdiff.f90    mpasstat.f90    mpastom3.f90    mtxcalc.f90     \
+pairstep.f90    presz.f90       randomstat.f90  timediff.f90    timeshift.f90   \
+vertot.f90      vertimeproc.f90 vertintegral.f90                wndwdesc.f90    \
+wndwpoints.f90  wndwptdata.f90  wrfgriddesc.f90 wrftom3.f90     wrfwndw.f90
+
 
 OBJ = $(fSRC:.f=.o) $(f90SRC:.f90=.o)
+
 
 EXE = \
 airs2m3         bcwndw          camxtom3        datshift        dayagg          \
@@ -98,13 +101,14 @@ factor          findwndw        greg2jul        gregdate        gridprobe       
 insertgrid      jul2greg        juldate         juldiff         julshift        \
 kfxtract        latlon          m3agmax         m3agmask        m3cple          \
 m3combo         m3diff          m3edhdr         m3fake          m3hdr           \
-m3interp        m3mask          m3merge         m3pair          m3probe         \
-m3stat          m3totxt         m3tproc         m3tshift        m3wndw          \
-m3xtract        mtxblend        mtxbuild        mtxcalc         mtxcple         \
-mpasdiff        mpasstat        mpastom3        presterp        presz           \
-projtool        selmrg2d        timediff        timeshift       vertot          \
-vertimeproc     vertintegral    wndwdesc        wrfgriddesc     wrftom3         \
-randomstat
+m3interp        m3mask          m3merge         m3mxfind        m3pair          \
+m3probe         m3stat          m3totxt         m3tproc         m3tshift        \
+m3tslct         m3wndw          m3xtract        mtxblend        mtxbuild        \
+mtxcalc         mtxcple         mpasdiff        mpasstat        mpastom3        \
+presterp        presz           projtool        randomstat      selmrg2d        \
+timediff        timeshift       vertot          vertimeproc     vertintegral    \
+wndwdesc        wndwpoints      wndwptdata      wrfgriddesc     wrftom3         \
+wrfwndw
 
 
 #      ----------------------   TOP-LEVEL TARGETS:   ------------------
@@ -213,9 +217,11 @@ m3hdr.o         : m3utilio.mod  modatts3.mod
 m3interp.o      : m3utilio.mod  modgctp.mod modatts3.mod
 m3mask.o        : m3utilio.mod
 m3merge.o       : m3utilio.mod  modgctp.mod
+m3mxfind.o      : m3utilio.mod
 m3stat.o        : m3utilio.mod
 m3tproc.o       : m3utilio.mod  modatts3.mod
 m3tshift.o      : m3utilio.mod  modatts3.mod
+m3tslct.o       : m3utilio.mod 
 m3xtract.o      : m3utilio.mod  modatts3.mod
 m3wndw.o        : m3utilio.mod  modatts3.mod
 mpasdiff.o      : m3utilio.mod  modmpasfio.mod
@@ -232,8 +238,11 @@ statgrid.o      : m3utilio.mod
 statiddat.o     : m3utilio.mod
 statspars.o     : m3utilio.mod
 wndwdesc.o      : m3utilio.mod  modgctp.mod
+wndwpoints.o    : m3utilio.mod  modgctp.mod
+wndwptdata.o    : m3utilio.mod  modgctp.mod
 wrfgriddesc.o   : m3utilio.mod  modwrfio.mod
 wrftom3.o       : m3utilio.mod  modwrfio.mod
+wrfwndw.o       : m3utilio.mod  modwrfio.mod modncfio.mod modgctp.mod
 
 
 #  ---------------------------  $(EXE) Program builds:  -----------------
@@ -323,6 +332,9 @@ m3mask: m3mask.o
 m3merge: m3merge.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
+m3mxfind: m3mxfind.o
+	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
+
 m3pair:  m3pair.o pairstep.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
@@ -340,6 +352,9 @@ m3tproc:  m3tproc.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
 m3tshift:  m3tshift.o
+	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
+
+m3tslct:  m3tslct.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
 m3wndw: m3wndw.o
@@ -408,9 +423,18 @@ vertot:  vertot.o
 wndwdesc:  wndwdesc.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
+wndwpoints:  wndwpoints.o
+	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
+
+wndwptdata:  wndwptdata.o
+	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
+
 wrfgriddesc:  wrfgriddesc.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
 wrftom3:  wrftom3.o
+	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
+
+wrfwndw:  wrfwndw.o
 	cd ${OBJDIR}; $(FC) ${LFLAGS} $^ ${LIBS} -o $@
 
